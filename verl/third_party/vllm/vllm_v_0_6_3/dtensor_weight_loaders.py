@@ -18,7 +18,7 @@ from typing import Dict
 import torch.nn as nn
 from torch.distributed._tensor import DTensor
 from vllm.model_executor.layers.fused_moe import FusedMoE
-from vllm.model_executor.model_loader.weight_utils import default_weight_loader
+from vllm.model_executor.model_loader.weight_utils import default_weight_loader, maybe_remap_kv_scale_name
 from vllm.model_executor.models.utils import is_pp_missing_parameter
 
 
@@ -307,6 +307,72 @@ def gpt2_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn
     pass
 
 
+def swissai_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
+    stacked_params_mapping = [
+        # (param_name, shard_name, shard_id)
+        (".qkv_proj", ".q_proj", "q"),
+        (".qkv_proj", ".k_proj", "k"),
+        (".qkv_proj", ".v_proj", "v"),
+    ]
+    params_dict = dict(vllm_model.named_parameters())
+    loaded_params = set()
+    for name, loaded_weight in actor_weights.items():
+        if "rotary_emb.inv_freq" in name:
+            continue
+        if ("rotary_emb.cos_cached" in name
+                or "rotary_emb.sin_cached" in name):
+            # Models trained using ColossalAI may include these tensors in
+            # the checkpoint. Skip them.
+            continue
+        if (vllm_model.quant_config is not None and
+            (scale_name := vllm_model.quant_config.get_cache_scale(name))):
+            # Loading kv cache quantization scales
+            local_loaded_weight = redistribute_dtensor(param_name=name, loaded_weights=loaded_weight)
+            param = params_dict[scale_name]
+            weight_loader = getattr(param, "weight_loader",
+                                    default_weight_loader)
+            loaded_weight = local_loaded_weight.to(dtype=param.dtype)
+            loaded_weight = (loaded_weight if loaded_weight.dim() == 0 else
+                                loaded_weight[0])
+            weight_loader(param, loaded_weight)
+            loaded_params.add(scale_name)
+            continue
+        if "scale" in name:
+            # Remapping the name of FP8 kv-scale.
+            name = maybe_remap_kv_scale_name(name, params_dict)
+            if name is None:
+                continue
+        for param_name, weight_name, shard_id in stacked_params_mapping:
+            if weight_name not in name:
+                continue
+            name = name.replace(weight_name, param_name)
+            # Skip loading extra bias for GPTQ models.
+            if name.endswith(".bias") and name not in params_dict:
+                continue
+
+            if is_pp_missing_parameter(name, vllm_model):
+                continue
+
+            local_loaded_weight = redistribute_dtensor(param_name=name, loaded_weights=loaded_weight)
+            param = params_dict[name]
+            weight_loader = param.weight_loader
+            weight_loader(param, local_loaded_weight.to(dtype=param.dtype), shard_id)
+            break
+        else:
+            # Skip loading extra bias for GPTQ models.
+            if name.endswith(".bias") and name not in params_dict:
+                continue
+
+            if is_pp_missing_parameter(name, vllm_model):
+                continue
+
+            local_loaded_weight = redistribute_dtensor(param_name=name, loaded_weights=loaded_weight)
+            param = params_dict[name]
+            weight_loader = getattr(param, "weight_loader",
+                                    default_weight_loader)
+            weight_loader(param, local_loaded_weight.to(dtype=param.dtype))
+
+
 def redistribute_dtensor(param_name: str, loaded_weights: DTensor, parallelize_plan: Dict = None):
     param_name = _process_parameter_names(name=param_name)
     if parallelize_plan is not None:
@@ -350,6 +416,7 @@ __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__ = {
     "Qwen2ForCausalLM": qwen2_dtensor_weight_loader,
     "DeepseekV2ForCausalLM": deepseekv2_dtensor_weight_loader,
     "Qwen2VLForConditionalGeneration": qwen2vl_dtensor_weight_loader,
+    "SwissAIForCausalLM": swissai_dtensor_weight_loader,
 }
 
 

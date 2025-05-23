@@ -20,7 +20,7 @@ import torch
 import torch.distributed
 from flash_attn.bert_padding import index_first_axis, rearrange, unpad_input
 from torch.distributed import init_device_mesh
-from transformers import AutoModelForCausalLM, LlamaConfig, PretrainedConfig, Qwen2Config
+from transformers import AutoModelForCausalLM, LlamaConfig, PretrainedConfig, Qwen2Config, SwissAIConfig
 
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.protocol import DataProto
@@ -60,6 +60,7 @@ def test_configs():
         ),
         SequenceParallelConfig(Qwen2Config(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4), sp_size=4, is_valid=True),
         SequenceParallelConfig(Qwen2Config(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=4), sp_size=8, is_valid=True),
+        SequenceParallelConfig(SwissAIConfig(num_hidden_layers=2, num_attention_heads=32, num_key_value_heads=32, hidden_size=4096), sp_size=8, is_valid=True),
     ]
 
 

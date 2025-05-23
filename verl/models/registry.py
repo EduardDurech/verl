@@ -32,6 +32,10 @@ _MODELS = {
         "mistral",
         ("ParallelMistralForCausalLMRmPadPP", "ParallelMistralForValueRmPadPP", "ParallelMistralForCausalLMRmPad"),
     ),
+    "SwissAIForCausalLM": (
+        "swissai",
+        ("ParallelSwissAIForCausalLMRmPadPP", "ParallelSwissAIForValueRmPadPP", "ParallelSwissAIForCausalLMRmPad"),
+    ),
 }
 
 

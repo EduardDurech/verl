@@ -18,7 +18,7 @@ import pytest
 
 from verl.utils.flops_counter import FlopsCounter
 
-VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3"}
+VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "swissai"}
 
 
 class Config:
@@ -121,12 +121,30 @@ CONFIG = {
         # 6*(129280*7168*2+ 3*(7168*18432*3+187105280)+ 58*(187105280+7168*256+7168*2048*9*3))*(4096+4096+4096) + 12*(4096*4096+4096*4096+4096*4096)*61*192*128
         "expected_flops_tuple": (906535995703296 / 1e12, 3674028304760832 / 1e12),
     },
+    "swissai": {
+        "config": {
+            "model_type": "swissai",
+            "vocab_size": 131072,
+            "hidden_size": 4096,
+            "intermediate_size": 14336,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 32,
+            "hidden_act": "xielu",
+            # head_dim will be derived as 4096 / 32 = 128
+        },
+        "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # Calculation for SwissAI (hidden_act="xielu" -> MLP uses [k_mlp=2]*H*I params; qk_norm=True -> [k_qkn=2]*H):
+        # V=131072, H=4096, I=14336, L=32, k_mlp=2 (XIELU), k_qkn=2 (QK norm), S=6
+        # S*(2*V*H + L*(4*H**2 + k_mlp*H*I + k_qkn*H)) * (SUM[seqlen]) + 12*SUM[seqlen**2]*L*H
+        "expected_flops_tuple": (158747628404736 / 1e12, 593755606351872 / 1e12),
+    },
 }
 
 
 @pytest.mark.parametrize(
     "config_type",
-    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3"],
+    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "swissai"],
 )
 def test_flops_counter(config_type: str):
     test_config = CONFIG[config_type]

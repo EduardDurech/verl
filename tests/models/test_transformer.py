@@ -21,6 +21,7 @@ from transformers import (
     LlamaConfig,
     MistralConfig,
     Qwen2Config,
+    SwissAIConfig,
 )
 
 from verl.utils.model import compute_position_id_with_mask, create_random_mask
@@ -33,6 +34,7 @@ test_configs = [
     MistralConfig(num_hidden_layers=1),
     GemmaConfig(num_hidden_layers=1),
     Qwen2Config(num_hidden_layers=1),
+    SwissAIConfig(num_hidden_layers=1),
 ]
 
 
